@@ -492,20 +492,17 @@ function renderExam(n) {
   let qHtml = '';
   qs.forEach((q, i) => {
     const lvlClass = q.lvl === 'سهل' ? 'lvl-easy' : (q.lvl === 'متوسط' ? 'lvl-med' : 'lvl-hard');
-    const isMulti = q.tp === 'اثنان' || q.tp === 'ثلاثة';
-    const inputType = isMulti ? 'checkbox' : 'radio';
+    const isMulti = true; // كل الأسئلة بمربعات اختيار متعددة
     const name = `e${n}q${i}`;
-    const multiHint = isMulti ? `<div style="font-size:.8rem;color:var(--blue);margin-bottom:8px;font-weight:600">☑ يمكن اختيار أكثر من إجابة</div>` : '';
     qHtml += `
       <div class="q-card" id="card-${n}-${i}">
         <span class="q-num">${i + 1}</span>
         <span class="q-level ${lvlClass}">${q.lvl}</span>
         <div class="q-text">${q.t}</div>
-        ${multiHint}
         <div class="opts">
           ${q.o.map((opt, j) => `
-            <label class="opt ${isMulti ? 'multi' : ''}" id="opt-${n}-${i}-${j}">
-              <input type="${inputType}" name="${name}" value="${j}" onchange="selectOpt(${n},${i},${j},${isMulti})">
+            <label class="opt multi" id="opt-${n}-${i}-${j}">
+              <input type="checkbox" name="${name}" value="${j}" onchange="selectOpt(${n},${i},${j})">
               <span>${['أ','ب','ج','د','ه'][j]}) ${opt}</span>
             </label>
           `).join('')}
@@ -517,26 +514,19 @@ function renderExam(n) {
   updateProgress(n);
 }
 
-function selectOpt(examN, qIdx, optIdx, isMulti) {
+function selectOpt(examN, qIdx, optIdx) {
   const idx = examN - 1;
   if (submitted[idx]) return;
   if (!answers[idx][qIdx]) answers[idx][qIdx] = [];
-  if (isMulti) {
-    const pos = answers[idx][qIdx].indexOf(optIdx);
-    if (pos >= 0) answers[idx][qIdx].splice(pos, 1);
-    else answers[idx][qIdx].push(optIdx);
+  const pos = answers[idx][qIdx].indexOf(optIdx);
+  if (pos >= 0) {
+    answers[idx][qIdx].splice(pos, 1);
   } else {
-    answers[idx][qIdx] = [optIdx];
-    // تحديث الشكل
-    document.querySelectorAll(`#card-${examN}-${qIdx} .opt`).forEach(el => el.classList.remove('selected'));
+    answers[idx][qIdx].push(optIdx);
   }
-  // تحديث selected class
+  // تحديث الشكل
   const el = document.getElementById(`opt-${examN}-${qIdx}-${optIdx}`);
-  if (isMulti) {
-    el.classList.toggle('selected');
-  } else {
-    el.classList.add('selected');
-  }
+  if (el) el.classList.toggle('selected');
   updateProgress(examN);
 }
 
@@ -566,29 +556,41 @@ function submitExam(n) {
   let correctCount = 0;
   let wrongCount = 0;
   let partialCount = 0;
+  let reviewHtml = '';
 
   qs.forEach((q, i) => {
     const userAns = (answers[idx][i] || []).slice().sort((a,b)=>a-b);
     const correct = q.a.slice().sort((a,b)=>a-b);
     let points = 0;
+    let status = 'خطأ';
+    let statusColor = 'var(--red)';
+    let statusBg = 'var(--red-light)';
 
     if (q.tp === 'واحد' || q.tp === 'صح/خطأ') {
       if (userAns.length === 1 && userAns[0] === correct[0]) {
         points = 1;
         correctCount++;
+        status = 'صحيح';
+        statusColor = 'var(--green)';
+        statusBg = 'var(--green-light)';
       } else {
         wrongCount++;
       }
     } else if (q.tp === 'اثنان') {
-      // تقاسم النقطة
       const matched = userAns.filter(x => correct.includes(x)).length;
       const wrongSelected = userAns.filter(x => !correct.includes(x)).length;
       if (matched === 2 && wrongSelected === 0) {
         points = 1;
         correctCount++;
+        status = 'صحيح';
+        statusColor = 'var(--green)';
+        statusBg = 'var(--green-light)';
       } else if (matched > 0 && wrongSelected === 0) {
         points = matched * 0.5;
         partialCount++;
+        status = 'جزئي';
+        statusColor = '#E67E22';
+        statusBg = 'var(--yellow-light)';
       } else {
         wrongCount++;
       }
@@ -598,16 +600,65 @@ function submitExam(n) {
       if (matched === 3 && wrongSelected === 0) {
         points = 1;
         correctCount++;
+        status = 'صحيح';
+        statusColor = 'var(--green)';
+        statusBg = 'var(--green-light)';
       } else if (matched > 0 && wrongSelected === 0) {
-        // 0.33 + 0.33 + 0.34
         if (matched === 1) points = 0.33;
         else if (matched === 2) points = 0.66;
         partialCount++;
+        status = 'جزئي';
+        statusColor = '#E67E22';
+        statusBg = 'var(--yellow-light)';
       } else {
         wrongCount++;
       }
     }
     score += points;
+
+    // بناء مراجعة السؤال
+    const letters = ['أ','ب','ج','د','ه'];
+    const userText = userAns.length
+      ? userAns.map(j => letters[j] + ') ' + q.o[j]).join('<br>')
+      : '<span style="color:#999">لم تُجَب</span>';
+    const correctText = correct.map(j => letters[j] + ') ' + q.o[j]).join('<br>');
+
+    // تمييز الخيارات على البطاقة الأصلية
+    q.o.forEach((_, j) => {
+      const optEl = document.getElementById(`opt-${n}-${i}-${j}`);
+      if (!optEl) return;
+      optEl.style.pointerEvents = 'none';
+      if (correct.includes(j)) {
+        optEl.style.borderColor = 'var(--green)';
+        optEl.style.background = 'var(--green-light)';
+        optEl.style.boxShadow = '0 0 0 2px rgba(27,122,78,.25)';
+      } else if (userAns.includes(j)) {
+        optEl.style.borderColor = 'var(--red)';
+        optEl.style.background = 'var(--red-light)';
+        optEl.style.boxShadow = '0 0 0 2px rgba(192,57,43,.25)';
+      }
+    });
+
+    reviewHtml += `
+      <div style="background:white;border-radius:12px;padding:14px 16px;margin-bottom:12px;border:1px solid var(--border);text-align:right">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+          <span style="font-weight:700;color:var(--blue)">السؤال ${i+1}</span>
+          <span style="background:${statusBg};color:${statusColor};font-weight:700;padding:3px 12px;border-radius:20px;font-size:.85rem">${status} ${points > 0 ? '('+points.toFixed(2)+' نقطة)' : ''}</span>
+        </div>
+        <div style="font-size:.95rem;font-weight:600;margin-bottom:10px;line-height:1.6">${q.t}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:.88rem">
+          <div style="background:#f8f9fa;border-radius:8px;padding:10px">
+            <div style="font-weight:700;color:#555;margin-bottom:4px">إجابتك:</div>
+            <div>${userText}</div>
+          </div>
+          <div style="background:var(--green-light);border-radius:8px;padding:10px">
+            <div style="font-weight:700;color:var(--green);margin-bottom:4px">الإجابة الصحيحة:</div>
+            <div>${correctText}</div>
+          </div>
+        </div>
+        ${status !== 'صحيح' ? `<div style="margin-top:8px;font-size:.85rem;color:#555;background:var(--yellow-light);padding:8px 10px;border-radius:8px"><strong>توضيح:</strong> الإجابة الصحيحة هي المعروضة أعلاه وفق المدونة العامة للضرائب وكتيب موريتانيا الضريبي 2025 وقانون الاستثمار.</div>` : ''}
+      </div>
+    `;
   });
 
   // تحويل إلى 20 نقطة
@@ -622,7 +673,7 @@ function submitExam(n) {
   // تمييز التبويب
   document.querySelector(`.tab-btn[data-exam="${n}"]`).classList.add('done');
 
-  // عرض النتيجة
+  // عرض النتيجة + المراجعة التفصيلية
   const resBox = document.getElementById('res-' + n);
   let color = finalScore >= 14 ? 'var(--green)' : (finalScore >= 10 ? '#E67E22' : 'var(--red)');
   let msg = finalScore >= 14 ? 'ممتاز! مستوى يؤهلك للمنافسة بقوة.' : (finalScore >= 10 ? 'جيد، راجع النقاط الضعيفة وحاول مرة أخرى.' : 'تحتاج إلى مراجعة أعمق للمادة. لا تستسلم.');
@@ -635,14 +686,17 @@ function submitExam(n) {
     <div class="score-detail">إجابات جزئية: ${partialCount}</div>
     <div class="score-detail">إجابات خاطئة أو فارغة: ${wrongCount}</div>
     <p style="margin-top:14px;font-weight:600">${msg}</p>
-    <p class="note">النتائج تظهر فقط بعد إنهاء الأسئلة الـ 60 كما في الامتحان الحقيقي.</p>
+    <hr style="margin:20px 0;border:none;border-top:2px solid var(--border)">
+    <h3 style="color:var(--blue);margin-bottom:14px">مراجعة تفصيلية للإجابات</h3>
+    <p style="font-size:.9rem;color:#666;margin-bottom:14px">🟢 أخضر = صحيح &nbsp;|&nbsp; 🔴 أحمر = اختيار خاطئ &nbsp;|&nbsp; 🟠 جزئي</p>
+    ${reviewHtml}
   `;
   resBox.classList.add('show');
-  resBox.scrollIntoView({behavior:'smooth', block:'center'});
+  resBox.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 // تشغيل أول اختبار
 renderExam(1);
 </script>
 </body>
-</html> 
+</html>
